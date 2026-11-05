@@ -61,7 +61,7 @@ func (n *netHTTPClient) Do(req *ClientRequest) (ClientResponse, error) {
 		r.Header.Add(k, v)
 	}
 
-	zap.S().Debugw("http request", "url", req.URL, "method", req.Method, "headers", req.Headers)
+	zap.S().Debugw("http request", "url", req.URL, "method", req.Method, "headers", redactHeaders(req.Headers))
 
 	resp, err := n.client.Do(r)
 	if err != nil {
@@ -98,6 +98,31 @@ func SetBasicAuthHeaders(headers map[string]string, username, password string) {
 	headers["Authorization"] = "Basic " + encodedAuth
 }
 
+var sensitiveHeaders = map[string]struct{}{
+	"authorization":       {},
+	"proxy-authorization": {},
+	"cookie":              {},
+	"set-cookie":          {},
+	"x-api-key":           {},
+	"x-auth-token":        {},
+	"api-key":             {},
+}
+
+const redactedValue = "[REDACTED]"
+
+func redactHeaders(headers map[string]string) map[string]string {
+	redacted := make(map[string]string, len(headers))
+	for k, v := range headers {
+		if _, ok := sensitiveHeaders[strings.ToLower(k)]; ok {
+			redacted[k] = redactedValue
+			continue
+		}
+		redacted[k] = v
+	}
+
+	return redacted
+}
+
 func createResponse(resp *http.Response) (ClientResponse, error) {
 	defer resp.Body.Close()
 
@@ -111,8 +136,7 @@ func createResponse(resp *http.Response) (ClientResponse, error) {
 		headers[k] = v[0]
 	}
 
-	zap.S().Debugw("http response", "status", resp.Status, "headers", headers)
-	zap.S().Debug(string(body))
+	zap.S().Debugw("http response", "status", resp.Status, "headers", redactHeaders(headers), "body_length", len(body))
 
 	return &netHTTPResponse{
 		code:    resp.StatusCode,
